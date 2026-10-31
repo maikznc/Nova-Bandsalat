@@ -1,0 +1,83 @@
+name: Build plugin
+
+# Builds on every push. Push a tag like v0.1.0 to also publish a GitHub release with the downloads.
+on:
+  push:
+    branches: [ main ]
+    tags: [ "v*" ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: macOS (VST3, AU, App)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (Universal: Apple Silicon + Intel)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Package
+        run: |
+          ART=build/NovaBandsalat_artefacts/Release
+          mkdir -p "NOVA Bandsalat macOS"
+          cp -R "$ART/VST3/NOVA Bandsalat.vst3" "NOVA Bandsalat macOS/"
+          cp -R "$ART/AU/NOVA Bandsalat.component" "NOVA Bandsalat macOS/"
+          cp -R "$ART/Standalone/NOVA Bandsalat.app" "NOVA Bandsalat macOS/"
+          cp INSTALL.md "NOVA Bandsalat macOS/INSTALLATION.md"
+          # ad-hoc signature so the plugin loads on Apple Silicon
+          codesign --force --deep --sign - "NOVA Bandsalat macOS/NOVA Bandsalat.vst3"
+          codesign --force --deep --sign - "NOVA Bandsalat macOS/NOVA Bandsalat.component"
+          codesign --force --deep --sign - "NOVA Bandsalat macOS/NOVA Bandsalat.app"
+          ditto -c -k --sequesterRsrc --keepParent "NOVA Bandsalat macOS" NOVA-Bandsalat-macOS.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NOVA-Bandsalat-macOS
+          path: NOVA-Bandsalat-macOS.zip
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: NOVA-Bandsalat-macOS.zip
+
+  windows:
+    name: Windows (VST3, App)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -DNOVA_FORMATS="VST3;Standalone"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $art = "build/NovaBandsalat_artefacts/Release"
+          New-Item -ItemType Directory -Force -Path "NOVA Bandsalat Windows" | Out-Null
+          Copy-Item -Recurse "$art/VST3/NOVA Bandsalat.vst3" "NOVA Bandsalat Windows/"
+          Copy-Item "$art/Standalone/NOVA Bandsalat.exe" "NOVA Bandsalat Windows/"
+          Copy-Item INSTALL.md "NOVA Bandsalat Windows/INSTALLATION.md"
+          Compress-Archive -Path "NOVA Bandsalat Windows" -DestinationPath NOVA-Bandsalat-Windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NOVA-Bandsalat-Windows
+          path: NOVA-Bandsalat-Windows.zip
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: NOVA-Bandsalat-Windows.zip
